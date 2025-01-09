@@ -63,4 +63,5 @@ Aidan Murphy
 **Course**: DATA 501  
 **Institution**: Binghamton University  
 **Submission Date**: December 20, 2024
+
 **Source**: Mohan S. Acharya, Asfia Armaan, Aneeta S. Antony, "A Comparison of Regression Models for Prediction of Graduate Admissions," *IEEE International Conference on Computational Intelligence in Data Science*, 2019. DOI: [10.1109/ICCIDS.2019.8862113](https://doi.org/10.1109/ICCIDS.2019.8862113)
