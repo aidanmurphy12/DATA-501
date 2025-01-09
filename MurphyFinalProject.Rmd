@@ -1,0 +1,156 @@
+---
+title: "DATA 501 Final Project - Aidan Murphy"
+output: pdf_document
+date: "Due Date = 2024-12-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Research Questions
+
+What are the key factors influencing the likelihood of graduate admission?
+
+How well can a regression model predict the chance of admission based on applicant data?
+
+Are interaction terms between predictors significant in improving the model's performance?
+
+## Explore and Prepare Data
+
+https://www.kaggle.com/datasets/akshaydattatraykhare/data-for-admission-in-the-university
+
+This dataset contains 9 columns and 400 entries pertaining to university admissions data and is sourced from Kaggle. The columns contain information like GRE score out of 340, TOEFL score out of 120, university rating out of 5, SOP (Statement of Purpose) and LOR (Letter of Recommendation) strength out of 5, CGPA, research experience and chance of admit.
+
+
+
+```{r}
+library(readr)
+library(ggplot2)
+library(GGally)
+library(caTools)
+library(Metrics)
+library(car)
+library(lmtest)
+library(tidyverse)
+
+data <- read_csv("adm_data.csv")
+head(data)
+```
+
+
+```{r}
+summary(data)
+colSums(is.na(data))
+ggpairs(data, columns = c("GRE Score", "TOEFL Score", "University Rating", "SOP", "LOR", "CGPA", "Research", "Chance of Admit"))
+```
+
+## Model Development
+
+```{R}
+set.seed(123)
+
+split <- sample.split(data$`Chance of Admit`, SplitRatio = 0.7)
+train_data <- subset(data, split == TRUE)
+test_data <- subset(data, split == FALSE)
+
+full_model <- lm(`Chance of Admit` ~ `GRE Score` + `TOEFL Score` + `University Rating` + SOP + `LOR` + CGPA + Research, data = train_data)
+summary(full_model)
+vif_values <- vif(full_model)
+print(vif_values)
+```
+
+
+
+The VIF value for CGPA is $> 5$ indicating multicollinearity. It is statistically significant however, so instead we remove University Rating, SOP, and TOEFL score from the model, which are not. We will see if this affects the fit of the model and if it solves the multicollinearity issue.
+
+
+
+```{r}
+reduced_model <- lm(`Chance of Admit` ~ `CGPA` + `GRE Score` + `LOR` + `Research`, data = train_data)
+summary(reduced_model)
+vif(reduced_model)
+
+anova_result <- anova(full_model, reduced_model)
+print(anova_result)
+par(mfrow = c(2, 2))
+plot(reduced_model)
+bptest(reduced_model)
+```
+
+
+
+\[
+  H_0: \beta_{\text{extra predictors}} = 0
+\]
+\[
+  H_1: \beta_{\text{extra predictors}} \neq 0
+\]  
+
+Since the p-value of the f-score is $0.092$ which is $> a=0.05$, we reject the alternative hypothesis that the full model explains more variability in the response variable than the reduced model in favor of the null hypothesis that the reduced model is sufficient. The new VIF values indicate that there is no significant multicollinearity among the four predictor variables. However, the Breusch-Pagan test indicates there is heteroscedasticity present in the model because the $p-value = 0.014 < a=0.05$.
+
+## Transformation
+
+```{R}
+library(MASS)
+boxcox_result <- boxcox(reduced_model, lambda = seq(1.5, 2, by = 0.1))
+lambda_best <- boxcox_result$x[which.max(boxcox_result$y)]
+
+
+lambda <- 1.75
+train_data$transformed_chance <- (train_data$`Chance of Admit`)^lambda
+
+transformed_model <- lm(transformed_chance ~ CGPA + `GRE Score` + LOR + Research, data = train_data)
+
+summary(transformed_model)
+bptest(transformed_model)
+par(mfrow = c(2, 2))
+```
+
+
+
+To achieve homoscedasticity, we can use a Box-Cox transformation. The plot of log-Likelihood suggested the appropriate lambda value was near 1.5-2 so I adjusted the axis and chose 1.75 as \(\lambda\) around where the curve intersects the 95% line. We can then raise the response variable to the power of lambda. After the transformation, I performed another Breusch_Pagan test to see if the heteroscedasticity problem has been resolved. The p-value this time was 0.218 indicating no statistically significant signs of heteroscedasticitiy. 
+
+## Model with Interaction Term
+
+```{r}
+model_without_interaction <- lm(`Chance of Admit` ~ CGPA + `GRE Score` + LOR + Research, data = train_data)
+model_with_interaction <- lm(`Chance of Admit` ~ CGPA * `GRE Score` + LOR + Research, data = train_data)
+
+anova(model_without_interaction, model_with_interaction)
+```
+
+
+
+From the ANOVA table, it is clear that adding an interaction term to this model does absolutely nothing to improve the fit so we will proceed without one.
+
+## Predictions
+
+```{R}
+new_data <- tibble(
+  CGPA = c(9.0, 8.5, 7.3),
+  `GRE Score` = c(330, 320, 340),
+  LOR = c(4.5, 4.0, 3.9),
+  Research = c(1, 0, 1)
+)
+
+predictions <- predict(transformed_model, newdata = new_data, interval = "prediction")
+
+back_transformed <- data.frame(
+  fit = predictions[, "fit"]^(1 / 1.75),
+  lwr = predictions[, "lwr"]^(1 / 1.75),
+  upr = predictions[, "upr"]^(1 / 1.75)
+)
+
+print(back_transformed)
+```
+
+
+
+With a new tibble containing some random predictor values, we can make predict the chance of admit for new data. For each new set of values, the function estimates a chance of admit value, and then gives an upper or lower prediction interval bound. The interval provides a range of plausible values for which the response variable may reside in. The result is then back transformed to account for the Box-Cox transformation that was applied so that the result is on the right scale.
+
+
+
+## Results
+
+This analysis focused on building a model to predict graduate admission chances using applicant data. Key variables like GRE Score, CGPA, LOR, and Research were identified as the most important predictors, while multicollinearity issues were resolved through evaluation and removal of unnecessary predictors. Testing revealed that adding interaction terms didn’t significantly improve the model, allowing for a streamlined approach. CGPA appeared to be the most influential factor, highlighting its key role in admissions decisions. By addressing heteroscedasticity with a Box-Cox transformation $\lambda = 1.75$, the model achieved an adjusted R-squared value of 0.8186, indicating that approximately 82% of the variability in admission likelihood could be explained by the predictors. Diagnostic plots confirmed that the model satisfied regression assumptions, and predictions for new applicants were back-transformed to provide results in the original scale, along with prediction intervals to show the uncertainty. With a low residual standard error and highly significant F-statistic, the model proves to be reliable. Hypothesis testing indicated that interaction terms did not significantly improve the model's performance so they were left out. In the future, adding new predictors and using a much larger dataset than the sample one used could improve this model significantly by capturing more variability.
